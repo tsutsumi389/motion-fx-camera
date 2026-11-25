@@ -224,6 +224,32 @@ final class HUDInteractorTests: XCTestCase {
         XCTAssertNotNil(state.panel)
     }
 
+    func testSummonProgressReachesOneExactlyWhenPanelAppears() {
+        let hand = makeHand(wrist: CGPoint(x: 200, y: 600))
+        let halfway = hold([hand], for: 0.2)
+        XCTAssertNil(halfway.panel)
+        XCTAssertEqual(halfway.summonProgress.values.first ?? 0, 0.5, accuracy: 0.001)
+
+        let summoned = hold([hand], for: 0.3)
+        XCTAssertNotNil(summoned.panel)
+        XCTAssertTrue(summoned.summonProgress.isEmpty)
+    }
+
+    func testSummonProgressDoesNotFillDuringCooldown() {
+        _ = summon()
+        hold([], for: 0.5)
+        var lastWrist = CGPoint.zero
+        for index in 0...6 {
+            time += frame
+            lastWrist = CGPoint(x: 100 + CGFloat(index) * 34, y: 600)
+            _ = interactor.update(hands: [makeHand(wrist: lastWrist)], at: time)
+        }
+        // 消した手を 0.7 秒止める。保持時間は足りているが、まだクールダウン中。
+        let resting = hold([makeHand(wrist: lastWrist)], for: 0.7)
+        XCTAssertNil(resting.panel)
+        XCTAssertEqual(resting.summonProgress.values.first ?? 1, 0, accuracy: 0.001)
+    }
+
     func testTwoHandPinchAwayFromPanelDoesNotScale() {
         let center = summon()
         hold([], for: 0.5)

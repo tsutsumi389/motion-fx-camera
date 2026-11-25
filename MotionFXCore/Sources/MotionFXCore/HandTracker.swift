@@ -35,11 +35,14 @@ public struct HandTracker: Sendable {
         /// スワイプ判定用。手を開いたまま途切れずに動いた軌跡だけを持つ。
         var swipePath: [Sample] = []
         var openStillSince: TimeInterval?
+        /// 最後に「開いている」と判定された時刻。つまむと nil に戻す。
+        var lastOpen: TimeInterval?
     }
 
     public let config: GestureConfig
     private var tracks: [Track] = []
     private var nextID = 0
+    private var lastUpdate: TimeInterval?
 
     public init(config: GestureConfig = GestureConfig()) {
         self.config = config
@@ -52,9 +55,12 @@ public struct HandTracker: Sendable {
 
     public mutating func reset() {
         tracks.removeAll()
+        lastUpdate = nil
     }
 
     public mutating func update(hands: [HandPose], at time: TimeInterval) -> [TrackedHand] {
+        let previousUpdate = lastUpdate
+        lastUpdate = time
         tracks.removeAll { time - $0.lastSeen > config.trackTimeout }
 
         let assignment = matchTracks(to: hands)
@@ -67,7 +73,7 @@ public struct HandTracker: Sendable {
                 nextID += 1
                 trackIndex = tracks.count - 1
             }
-            return advance(trackIndex: trackIndex, pose: pose, time: time)
+            return advance(trackIndex: trackIndex, pose: pose, time: time, previousUpdate: previousUpdate)
         }
     }
 
@@ -94,7 +100,12 @@ public struct HandTracker: Sendable {
         return trackForHand
     }
 
-    private mutating func advance(trackIndex: Int, pose: HandPose, time: TimeInterval) -> TrackedHand {
+    private mutating func advance(
+        trackIndex: Int,
+        pose: HandPose,
+        time: TimeInterval,
+        previousUpdate: TimeInterval?
+    ) -> TrackedHand {
         var track = tracks[trackIndex]
         let handSize = pose.handSize
         let palm = pose.palmCenter
@@ -107,14 +118,27 @@ public struct HandTracker: Sendable {
         }
         let isOpen = !track.isPinching && pose.areFingersExtended(ratio: config.fingerExtensionRatio)
 
+        // 指の関節が 1 フレームだけ検出から落ちても「開いた手」として数え続ける。
+        // 猶予がないと、保持時間やスワイプの軌跡がそのたびに最初からやり直しになる。
+        // つまんだ場合は意図した操作なので、猶予なしで打ち切る。
+        if isOpen {
+            track.lastOpen = time
+        } else if track.isPinching {
+            track.lastOpen = nil
+        }
+        let countsAsOpen = track.lastOpen.map { time - $0 <= config.openGrace } ?? false
+
         let sample = Sample(time: time, point: palm)
         let gap = time - track.lastSeen
+        // 前回の更新でこの手が見つからなかった（＝検出が途切れた）か。
+        // フレーム間隔そのものが長いだけの場合と区別する。
+        let missedUpdate = previousUpdate.map { track.lastSeen < $0 } ?? false
 
         track.recent.append(sample)
         track.recent.removeAll { time - $0.time > config.stillWindow }
         let stillRadius = config.stillRadius * handSize
         let isStill = track.recent.allSatisfy { $0.point.distance(to: palm) <= stillRadius }
-        if isOpen && isStill {
+        if countsAsOpen && isStill {
             track.openStillSince = track.openStillSince ?? time
         } else {
             track.openStillSince = nil
@@ -124,8 +148,8 @@ public struct HandTracker: Sendable {
         // つまんでドラッグした動きや、検出が途切れたあとの位置飛びを数えると、
         // パネルを置いた直後に「払った」と誤判定して消してしまう。
         var swipe: SwipeDirection?
-        if isOpen {
-            if gap > config.swipeMaxGap {
+        if countsAsOpen {
+            if missedUpdate && gap > config.swipeMaxGap {
                 track.swipePath.removeAll()
             }
             track.swipePath.append(sample)

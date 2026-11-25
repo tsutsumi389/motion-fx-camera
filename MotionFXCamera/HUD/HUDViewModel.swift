@@ -7,6 +7,8 @@ import SwiftUI
 final class HUDViewModel: ObservableObject {
     enum CameraAccess {
         case unknown, granted, denied
+        /// スクリーンタイムなどで制限されていて、ユーザー自身では許可できない。
+        case restricted
         /// 許可はあるがカメラを起動できなかった。
         case failed
         /// シミュレータ。カメラがないので合成した手でデモを流す。
@@ -36,8 +38,14 @@ final class HUDViewModel: ObservableObject {
         access = .demo
         startDemo()
         #else
-        guard await CameraController.requestAccess() else {
+        switch await CameraController.requestAccess() {
+        case .granted:
+            break
+        case .denied:
             access = .denied
+            return
+        case .restricted:
+            access = .restricted
             return
         }
         access = .granted
@@ -72,7 +80,7 @@ final class HUDViewModel: ObservableObject {
                 access = .granted
                 camera.start()
             }
-        case .unknown, .denied:
+        case .unknown, .denied, .restricted:
             break
         }
         if !isActive {

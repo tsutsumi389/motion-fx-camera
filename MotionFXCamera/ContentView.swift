@@ -49,6 +49,13 @@ struct ContentView: View {
                     showsSettingsButton: true
                 )
             }
+        case .restricted:
+            Color.black.overlay {
+                cameraUnavailableMessage(
+                    "この端末ではカメラの使用が制限されています。スクリーンタイムなどの制限を管理している人に確認してください。",
+                    showsSettingsButton: false
+                )
+            }
         case .failed:
             Color.black.overlay {
                 cameraUnavailableMessage(

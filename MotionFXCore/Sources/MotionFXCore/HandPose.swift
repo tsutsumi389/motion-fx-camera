@@ -66,11 +66,14 @@ public struct HandPose: Equatable, Sendable {
         point(.thumbTip).distance(to: point(.indexTip)) / handSize
     }
 
-    /// 手のひらの中心。付け根の関節が欠けている場合は、見えている関節だけで求める。
+    /// 手のひらの中心。必ず検出されている手首と中指の付け根だけから求める。
+    /// 見えている関節の平均にすると、付け根の関節が検出に出入りするたびに位置が飛ぶ。
     public var palmCenter: CGPoint {
-        let points = [HandJoint.wrist, .indexMCP, .middleMCP, .littleMCP].compactMap { joints[$0] }
-        let sum = points.reduce(CGPoint.zero) { CGPoint(x: $0.x + $1.x, y: $0.y + $1.y) }
-        return CGPoint(x: sum.x / CGFloat(points.count), y: sum.y / CGFloat(points.count))
+        let knuckle = point(.middleMCP)
+        return CGPoint(
+            x: wrist.x + (knuckle.x - wrist.x) * 0.6,
+            y: wrist.y + (knuckle.y - wrist.y) * 0.6
+        )
     }
 
     /// 人差し指〜小指がすべて伸びているか。

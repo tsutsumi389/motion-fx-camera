@@ -13,10 +13,7 @@ struct HUDOverlayView: View {
 
     var body: some View {
         ZStack {
-            HandsLayer(
-                hands: state.hands,
-                summonHold: state.phase == .hidden ? config.summonHold : nil
-            )
+            HandsLayer(hands: state.hands, summonProgress: state.summonProgress)
 
             if let panel = state.panel {
                 HoloPanelView(phase: state.phase, scale: panel.scale)
@@ -34,16 +31,16 @@ struct HUDOverlayView: View {
 /// 検出した手の骨格、つまみ位置のカーソル、パネルが出るまでの進捗リング。
 private struct HandsLayer: View {
     let hands: [TrackedHand]
-    /// nil 以外なら、手のひらの周りに「出るまでの進捗」を描く。
-    let summonHold: TimeInterval?
+    /// 手の ID ごとの「パネルが出るまでの進捗」（0...1）。手のひらの周りに描く。
+    let summonProgress: [Int: Double]
 
     var body: some View {
         Canvas { context, _ in
             for hand in hands {
                 drawSkeleton(of: hand, in: &context)
                 drawCursor(of: hand, in: &context)
-                if let summonHold, hand.stillOpenDuration > 0 {
-                    drawSummonProgress(of: hand, hold: summonHold, in: &context)
+                if let progress = summonProgress[hand.id], progress > 0 {
+                    drawSummonProgress(of: hand, progress: progress, in: &context)
                 }
             }
         }
@@ -75,8 +72,7 @@ private struct HandsLayer: View {
         context.stroke(ring, with: .color(color), lineWidth: 2)
     }
 
-    private func drawSummonProgress(of hand: TrackedHand, hold: TimeInterval, in context: inout GraphicsContext) {
-        let progress = min(hand.stillOpenDuration / hold, 1)
+    private func drawSummonProgress(of hand: TrackedHand, progress: Double, in context: inout GraphicsContext) {
         var arc = Path()
         arc.addArc(
             center: hand.pose.palmCenter,
@@ -95,6 +91,14 @@ private struct HoloPanelView: View {
     let scale: CGFloat
 
     @State private var hasAppeared = false
+
+    /// 端末の 12 時間 / 24 時間設定に関係なく、常に 24 時間表記で出す。
+    private static let clockFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter
+    }()
 
     private var isActive: Bool { phase == .grabbed || phase == .scaling }
     private var tint: Color { isActive ? HoloStyle.accent : HoloStyle.color }
@@ -136,7 +140,7 @@ private struct HoloPanelView: View {
                             .frame(width: 70, height: 70)
 
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(timeline.date, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).second(.twoDigits))
+                            Text(Self.clockFormatter.string(from: timeline.date))
                                 .font(.system(size: 24, weight: .light, design: .monospaced))
                             Text("SCALE ×\(scale, specifier: "%.2f")")
                                 .font(.system(size: 10, weight: .medium, design: .monospaced))

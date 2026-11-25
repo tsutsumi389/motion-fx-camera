@@ -12,8 +12,8 @@ enum DemoHandScript {
         let t = time.truncatingRemainder(dividingBy: period)
 
         let startWrist = CGPoint(x: size.width * 0.55, y: size.height * 0.72)
-        // パネルが出る位置（手のひらの中心から handSize の 1.6 倍だけ上）。
-        let panelCenter = CGPoint(x: startWrist.x + 0.05 * handSize, y: startWrist.y - 2.3 * handSize)
+        // パネルが出る位置（手のひらの中心 = 手首の 0.6 上、そこから handSize の 1.6 倍だけ上）。
+        let panelCenter = CGPoint(x: startWrist.x, y: startWrist.y - 2.2 * handSize)
         let dragTarget = CGPoint(x: panelCenter.x - 50, y: panelCenter.y - 120)
         let leftStart = CGPoint(x: dragTarget.x - 100, y: dragTarget.y)
         let leftEnd = CGPoint(x: dragTarget.x - 125, y: dragTarget.y)

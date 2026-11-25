@@ -27,11 +27,20 @@ public struct HUDState: Equatable, Sendable {
     public var panel: HUDPanel?
     public var phase: HUDPhase
     public var hands: [TrackedHand]
+    /// パネルが出るまでの進み具合（0...1）。手の ID ごと。パネルが出ていない間だけ入る。
+    /// 消した直後の待ち時間も織り込んであるので、1 になった時点で必ずパネルが出る。
+    public var summonProgress: [Int: Double]
 
-    public init(panel: HUDPanel? = nil, phase: HUDPhase = .hidden, hands: [TrackedHand] = []) {
+    public init(
+        panel: HUDPanel? = nil,
+        phase: HUDPhase = .hidden,
+        hands: [TrackedHand] = [],
+        summonProgress: [Int: Double] = [:]
+    ) {
         self.panel = panel
         self.phase = phase
         self.hands = hands
+        self.summonProgress = summonProgress
     }
 }
 
@@ -71,17 +80,22 @@ public struct HUDInteractor: Sendable {
     public mutating func update(hands poses: [HandPose], at time: TimeInterval) -> HUDState {
         let hands = tracker.update(hands: poses, at: time)
         let pinching = hands.filter(\.isPinching)
+        var summonProgress: [Int: Double] = [:]
 
         switch mode {
         case .hidden(let cooldownUntil):
             // クールダウン中の静止は数えない。明けてから改めて summonHold だけ止める必要がある。
             // そうしないと、払って消した手を止めているだけで明けた瞬間に出し直してしまう。
-            let canSummon = time >= cooldownUntil + config.summonHold
-            if canSummon, let hand = hands.first(where: { $0.stillOpenDuration >= config.summonHold }) {
+            for hand in hands where hand.stillOpenDuration > 0 {
+                let counted = min(hand.stillOpenDuration, time - cooldownUntil)
+                summonProgress[hand.id] = min(max(counted / config.summonHold, 0), 1)
+            }
+            if let hand = hands.first(where: { summonProgress[$0.id] == 1 }) {
                 let palm = hand.pose.palmCenter
                 let center = CGPoint(x: palm.x, y: palm.y - config.summonOffset * hand.pose.handSize)
                 panel = HUDPanel(center: clamped(center), scale: 1)
                 mode = .idle
+                summonProgress = [:]
             }
 
         case .idle:
@@ -160,7 +174,7 @@ public struct HUDInteractor: Sendable {
             }
         }
 
-        return HUDState(panel: panel, phase: phase, hands: hands)
+        return HUDState(panel: panel, phase: phase, hands: hands, summonProgress: summonProgress)
     }
 
     private var phase: HUDPhase {

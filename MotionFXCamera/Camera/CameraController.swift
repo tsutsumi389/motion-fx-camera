@@ -17,7 +17,8 @@ final class CameraController: NSObject, @unchecked Sendable {
 
     /// 映像キューから呼ばれる。`start()` の前に設定すること。
     var onFrame: (@Sendable (HandFrame) -> Void)?
-    /// カメラを構成できなかったときに呼ばれる。`start()` の前に設定すること。
+    /// カメラを構成できなかったとき、または回復できないエラーで止まったときに呼ばれる。
+    /// `start()` の前に設定すること。
     var onSetupFailed: (@Sendable () -> Void)?
 
     private let sessionQueue = DispatchQueue(label: "motionfx.camera.session")
@@ -39,23 +40,42 @@ final class CameraController: NSObject, @unchecked Sendable {
         )
     }
 
-    /// メディアサービスのリセットなどでセッションが止まったら、動かしたい間は再開する。
+    /// メディアサービスのリセットでセッションが止まったら、動かしたい間は再開する。
+    /// それ以外のエラーは再開しても同じ失敗を繰り返すだけなので、失敗として UI に伝える。
     @objc private func sessionRuntimeError(_ notification: Notification) {
+        let error = notification.userInfo?[AVCaptureSessionErrorKey] as? AVError
+        let isRecoverable = error?.code == .mediaServicesWereReset
         sessionQueue.async { [self] in
-            if wantsRunning, isConfigured, !session.isRunning {
-                session.startRunning()
+            guard wantsRunning, isConfigured else { return }
+            if isRecoverable {
+                if !session.isRunning {
+                    session.startRunning()
+                }
+            } else {
+                wantsRunning = false
+                onSetupFailed?()
             }
         }
     }
 
-    static func requestAccess() async -> Bool {
+    enum Permission {
+        case granted
+        /// ユーザーが拒否した。設定アプリで許可できる。
+        case denied
+        /// スクリーンタイムなどで制限されている。ユーザー自身では許可できない。
+        case restricted
+    }
+
+    static func requestAccess() async -> Permission {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
-            return true
+            return .granted
         case .notDetermined:
-            return await AVCaptureDevice.requestAccess(for: .video)
+            return await AVCaptureDevice.requestAccess(for: .video) ? .granted : .denied
+        case .restricted:
+            return .restricted
         default:
-            return false
+            return .denied
         }
     }
 

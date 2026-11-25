@@ -74,9 +74,50 @@ final class HandTrackerTests: XCTestCase {
         for index in 0...10 {
             _ = tracker.update(hands: [makeHand(wrist: wrist)], at: Double(index) * frame)
         }
-        let closed = tracker.update(hands: [makeHand(wrist: wrist, shape: .fist)], at: 11 * frame)[0]
-        XCTAssertFalse(closed.isOpen)
-        XCTAssertEqual(closed.stillOpenDuration, 0)
+        // 握ったまま猶予（openGrace）より長く経つと、保持は 0 に戻る。
+        var closed: TrackedHand?
+        for index in 11...17 {
+            closed = tracker.update(hands: [makeHand(wrist: wrist, shape: .fist)], at: Double(index) * frame)[0]
+        }
+        XCTAssertEqual(closed?.isOpen, false)
+        XCTAssertEqual(closed?.stillOpenDuration, 0)
+    }
+
+    func testStillOpenDurationSurvivesOneFrameOfMissingFinger() {
+        var tracker = HandTracker()
+        let wrist = CGPoint(x: 100, y: 500)
+        var last: TrackedHand?
+        for index in 0...15 {
+            var joints = makeHand(wrist: wrist).joints
+            if index == 8 {
+                // 小指の先端が 1 フレームだけ検出から落ちる。
+                joints[.littleTip] = nil
+            }
+            last = tracker.update(hands: [HandPose(joints: joints)!], at: Double(index) * frame)[0]
+        }
+        XCTAssertEqual(last?.stillOpenDuration ?? 0, 0.5, accuracy: 0.001)
+    }
+
+    func testPinchResetsStillOpenDurationImmediately() {
+        var tracker = HandTracker()
+        let wrist = CGPoint(x: 100, y: 500)
+        for index in 0...10 {
+            _ = tracker.update(hands: [makeHand(wrist: wrist)], at: Double(index) * frame)
+        }
+        let pinched = tracker.update(hands: [makeHand(wrist: wrist, shape: .pinch)], at: 11 * frame)[0]
+        XCTAssertEqual(pinched.stillOpenDuration, 0)
+    }
+
+    func testSwipeIsDetectedAtLowFrameRate() {
+        var tracker = HandTracker()
+        var swipes: [SwipeDirection] = []
+        // 約 8fps（1 フレーム 0.12 秒）。フレーム間隔が長いだけで、手は見失っていない。
+        for index in 0...3 {
+            let wrist = CGPoint(x: 100 + CGFloat(index) * 80, y: 500)
+            let tracked = tracker.update(hands: [makeHand(wrist: wrist)], at: Double(index) * 0.12)[0]
+            if let swipe = tracked.swipe { swipes.append(swipe) }
+        }
+        XCTAssertEqual(swipes, [.right])
     }
 
     func testStillOpenDurationSurvivesDetectionJitter() {
@@ -132,7 +173,8 @@ final class HandTrackerTests: XCTestCase {
         var tracker = HandTracker()
         _ = tracker.update(hands: [makeHand(wrist: CGPoint(x: 100, y: 500))], at: 0)
         _ = tracker.update(hands: [makeHand(wrist: CGPoint(x: 100, y: 500))], at: frame)
-        // 0.2 秒検出が途切れ、手 1.8 個分離れた場所で再検出される。
+        // 0.2 秒検出が途切れ（その間もフレームは来ている）、手 1.8 個分離れた場所で再検出される。
+        _ = tracker.update(hands: [], at: frame + 0.1)
         let resumed = tracker.update(hands: [makeHand(wrist: CGPoint(x: 280, y: 500))], at: frame + 0.2)[0]
         XCTAssertNil(resumed.swipe)
     }
