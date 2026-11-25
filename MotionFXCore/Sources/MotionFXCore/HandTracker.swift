@@ -134,6 +134,13 @@ public struct HandTracker: Sendable {
         // フレーム間隔そのものが長いだけの場合と区別する。
         let missedUpdate = previousUpdate.map { track.lastSeen < $0 } ?? false
 
+        // 猶予より長く見失っていた間は「止めていた」ことを確認できないので、保持をやり直す。
+        // そうしないと、見失っていた時間まで保持に数えて、再検出した瞬間にパネルが出てしまう。
+        if missedUpdate && gap > config.openGrace {
+            track.openStillSince = nil
+            track.recent.removeAll()
+        }
+
         track.recent.append(sample)
         track.recent.removeAll { time - $0.time > config.stillWindow }
         let stillRadius = config.stillRadius * handSize

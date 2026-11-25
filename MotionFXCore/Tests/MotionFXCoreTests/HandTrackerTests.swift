@@ -98,6 +98,26 @@ final class HandTrackerTests: XCTestCase {
         XCTAssertEqual(last?.stillOpenDuration ?? 0, 0.5, accuracy: 0.001)
     }
 
+    func testHoldRestartsAfterDetectionGapLongerThanGrace() {
+        var tracker = HandTracker()
+        var time = 0.0
+        var first: TrackedHand?
+        // 0.2 秒だけ開いて止める。
+        while time <= 0.2 {
+            first = tracker.update(hands: [makeHand(wrist: CGPoint(x: 100, y: 500))], at: time)[0]
+            time += frame
+        }
+        // 0.45 秒過ぎまで見失う（同じ手として待っている時間内）。
+        while time < 0.45 {
+            _ = tracker.update(hands: [], at: time)
+            time += frame
+        }
+        let resumed = tracker.update(hands: [makeHand(wrist: CGPoint(x: 160, y: 500))], at: time)[0]
+        XCTAssertEqual(resumed.id, first?.id)
+        // 見失っていた時間は保持に数えない。
+        XCTAssertEqual(resumed.stillOpenDuration, 0)
+    }
+
     func testPinchResetsStillOpenDurationImmediately() {
         var tracker = HandTracker()
         let wrist = CGPoint(x: 100, y: 500)

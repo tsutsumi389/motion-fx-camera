@@ -63,7 +63,11 @@ final class HUDViewModel: ObservableObject {
                 }
             }
         }
-        camera.start()
+        // 許可のダイアログが出ている間にバックグラウンドへ移っていたら、ここでは始めない。
+        // 戻ってきたときに setActive(true) が始める。
+        if isActive {
+            camera.start()
+        }
         #endif
     }
 
