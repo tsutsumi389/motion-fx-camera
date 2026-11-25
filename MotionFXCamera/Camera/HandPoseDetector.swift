@@ -1,5 +1,6 @@
 import CoreMedia
 import MotionFXCore
+import OSLog
 import Vision
 
 /// カメラのフレームから手の関節を検出する。処理はすべて端末内で完結する。
@@ -14,9 +15,13 @@ final class HandPoseDetector {
     ]
 
     private let minimumConfidence: Float = 0.3
-    /// 手の大きさとピンチに必須の関節は、つまんで隠れがちなので低い信頼度でも採用する。
-    /// これらが欠けると手ごと見失い、掴んでいるパネルを落としてしまうため。
-    private let minimumRequiredConfidence: Float = 0.1
+    /// 手の大きさとピンチに必須の関節は、つまんで隠れがちなので少しだけ緩める。
+    /// 緩めすぎると当てずっぽうの位置が手の大きさの基準に入り、誤ってつまんだ判定になる。
+    /// 一瞬の取りこぼしは `GestureConfig.trackTimeout` の間「掴んだまま待つ」ことで吸収する。
+    private let minimumRequiredConfidence: Float = 0.2
+    private let logger = Logger(subsystem: "MotionFXCamera", category: "HandPoseDetector")
+    /// 同じ失敗を毎フレーム記録しないための印。映像キュー上でのみ読み書きする。
+    private var isFailing = false
     private let request: VNDetectHumanHandPoseRequest = {
         let request = VNDetectHumanHandPoseRequest()
         request.maximumHandCount = 2
@@ -29,7 +34,13 @@ final class HandPoseDetector {
         let handler = VNImageRequestHandler(cmSampleBuffer: sampleBuffer, orientation: .up, options: [:])
         do {
             try handler.perform([request])
+            isFailing = false
         } catch {
+            // 失敗が続いても「手が写っていない」のと見分けがつくよう、最初の 1 回を記録する。
+            if !isFailing {
+                isFailing = true
+                logger.error("Hand pose detection failed: \(error.localizedDescription, privacy: .public)")
+            }
             return []
         }
 

@@ -13,8 +13,11 @@ public struct GestureConfig: Equatable, Sendable {
     // MARK: 手のひら
 
     public var fingerExtensionRatio: CGFloat = 1.1
-    /// 「静止している」とみなす手のひらの速さの上限（手のサイズ / 秒）。
-    public var stillSpeed: CGFloat = 1.0
+    /// 静止を判定する時間窓（秒）。
+    public var stillWindow: TimeInterval = 0.2
+    /// `stillWindow` の間、手のひらがこの範囲内に収まっていれば「静止している」とみなす。
+    /// 1 フレームごとの速さではなく窓全体で見るので、検出位置の細かい揺れでは途切れない。
+    public var stillRadius: CGFloat = 0.25
     /// 手のひらを開いて静止し続けるとパネルが出るまでの秒数。
     public var summonHold: TimeInterval = 0.4
     /// パネルを手のひらのどれだけ上に出すか。
@@ -26,6 +29,8 @@ public struct GestureConfig: Equatable, Sendable {
     public var swipeMinDuration: TimeInterval = 0.08
     /// `swipeWindow` 内にこの距離を横に動くとスワイプ。
     public var swipeDistance: CGFloat = 1.5
+    /// 検出がこれより長く途切れたら、スワイプの軌跡をやり直す（再検出時の位置飛びを数えない）。
+    public var swipeMaxGap: TimeInterval = 0.1
     /// 消した直後に同じ手で出し直さないための待ち時間。
     public var dismissCooldown: TimeInterval = 1.0
 
@@ -41,6 +46,8 @@ public struct GestureConfig: Equatable, Sendable {
     public var panelBaseSize = CGSize(width: 240, height: 150)
     /// パネルの外側でも掴める余白（ポイント）。
     public var grabMargin: CGFloat = 30
+    /// 拡大縮小に加わる 2 本目の手が、掴める範囲からさらにどれだけ離れていてよいか（ポイント）。
+    public var scaleReach: CGFloat = 80
     public var minScale: CGFloat = 0.5
     public var maxScale: CGFloat = 2.5
 

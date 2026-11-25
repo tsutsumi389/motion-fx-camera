@@ -20,7 +20,12 @@ struct ContentView: View {
         .statusBarHidden()
         .task { await model.start() }
         .onChange(of: scenePhase) { _, phase in
-            model.setActive(phase == .active)
+            // 通知センターを引き出した程度（.inactive）では止めない。出していたパネルが消えてしまう。
+            switch phase {
+            case .active: model.setActive(true)
+            case .background: model.setActive(false)
+            default: break
+            }
         }
     }
 

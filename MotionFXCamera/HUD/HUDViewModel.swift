@@ -66,7 +66,13 @@ final class HUDViewModel: ObservableObject {
             if isActive { camera.start() } else { camera.stop() }
         case .demo:
             if isActive { startDemo() } else { stopDemo() }
-        case .unknown, .denied, .failed:
+        case .failed:
+            // 戻ってきたときにはカメラが使えるようになっているかもしれないので、起動し直す。
+            if isActive {
+                access = .granted
+                camera.start()
+            }
+        case .unknown, .denied:
             break
         }
         if !isActive {

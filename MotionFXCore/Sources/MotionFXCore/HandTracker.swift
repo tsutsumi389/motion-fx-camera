@@ -30,7 +30,10 @@ public struct HandTracker: Sendable {
         var pose: HandPose
         var lastSeen: TimeInterval
         var isPinching = false
-        var history: [Sample] = []
+        /// 静止判定用。直近 `stillWindow` 秒ぶんの手のひらの位置。
+        var recent: [Sample] = []
+        /// スワイプ判定用。手を開いたまま途切れずに動いた軌跡だけを持つ。
+        var swipePath: [Sample] = []
         var openStillSince: TimeInterval?
     }
 
@@ -104,28 +107,40 @@ public struct HandTracker: Sendable {
         }
         let isOpen = !track.isPinching && pose.areFingersExtended(ratio: config.fingerExtensionRatio)
 
-        var speed: CGFloat = 0
-        if let last = track.history.last, time > last.time {
-            speed = palm.distance(to: last.point) / CGFloat(time - last.time) / handSize
-        }
-        if isOpen && speed < config.stillSpeed {
+        let sample = Sample(time: time, point: palm)
+        let gap = time - track.lastSeen
+
+        track.recent.append(sample)
+        track.recent.removeAll { time - $0.time > config.stillWindow }
+        let stillRadius = config.stillRadius * handSize
+        let isStill = track.recent.allSatisfy { $0.point.distance(to: palm) <= stillRadius }
+        if isOpen && isStill {
             track.openStillSince = track.openStillSince ?? time
         } else {
             track.openStillSince = nil
         }
 
-        track.history.append(Sample(time: time, point: palm))
-        track.history.removeAll { time - $0.time > config.swipeWindow }
-
+        // スワイプは「開いた手が途切れずに動いた区間」だけで判定する。
+        // つまんでドラッグした動きや、検出が途切れたあとの位置飛びを数えると、
+        // パネルを置いた直後に「払った」と誤判定して消してしまう。
         var swipe: SwipeDirection?
-        if !track.isPinching, let first = track.history.first, time - first.time >= config.swipeMinDuration {
-            let dx = palm.x - first.point.x
-            let dy = palm.y - first.point.y
-            if abs(dx) >= config.swipeDistance * handSize && abs(dx) >= 2 * abs(dy) {
-                swipe = dx > 0 ? .right : .left
-                // 同じ動きで連続して成立しないよう、履歴を現在位置からやり直す。
-                track.history = [Sample(time: time, point: palm)]
+        if isOpen {
+            if gap > config.swipeMaxGap {
+                track.swipePath.removeAll()
             }
+            track.swipePath.append(sample)
+            track.swipePath.removeAll { time - $0.time > config.swipeWindow }
+            if let first = track.swipePath.first, time - first.time >= config.swipeMinDuration {
+                let dx = palm.x - first.point.x
+                let dy = palm.y - first.point.y
+                if abs(dx) >= config.swipeDistance * handSize && abs(dx) >= 2 * abs(dy) {
+                    swipe = dx > 0 ? .right : .left
+                    // 同じ動きで連続して成立しないよう、軌跡を現在位置からやり直す。
+                    track.swipePath = [sample]
+                }
+            }
+        } else {
+            track.swipePath.removeAll()
         }
 
         track.pose = pose

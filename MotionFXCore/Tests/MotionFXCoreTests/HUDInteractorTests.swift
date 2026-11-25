@@ -248,6 +248,68 @@ final class HUDInteractorTests: XCTestCase {
         XCTAssertEqual(state.panel!.center.x, center.x + 15, accuracy: 0.001)
     }
 
+    func testFastDragThenReleaseKeepsPanel() {
+        let center = summon()
+        hold([], for: 0.5)
+        var state = hold([pinch(at: center)])
+        var point = center
+        for _ in 0..<6 {
+            time += frame
+            point.x += 34
+            state = interactor.update(hands: [pinch(at: point)], at: time)
+        }
+        XCTAssertEqual(state.phase, .grabbed)
+
+        // 離して、開いた手をその場に残す。
+        state = hold([makeHand(wrist: CGPoint(x: point.x + 50, y: point.y + 120))], for: 0.5)
+        XCTAssertEqual(state.phase, .idle)
+        XCTAssertEqual(state.panel!.center.x, point.x, accuracy: 0.001)
+    }
+
+    func testSwipeFarFromPanelDoesNotDismiss() {
+        let center = summon()
+        hold([], for: 0.5)
+        var state = HUDState()
+        for index in 0...6 {
+            time += frame
+            let wrist = CGPoint(x: 100 + CGFloat(index) * 34, y: center.y + 700)
+            state = interactor.update(hands: [makeHand(wrist: wrist)], at: time)
+        }
+        XCTAssertEqual(state.phase, .idle)
+        XCTAssertNotNil(state.panel)
+    }
+
+    func testDistantPinchDoesNotTurnGrabIntoScaling() {
+        let center = summon()
+        hold([], for: 0.5)
+        hold([pinch(at: center)])
+        let far = CGPoint(x: center.x + 600, y: center.y + 600)
+
+        let state = hold([pinch(at: CGPoint(x: center.x + 10, y: center.y)), pinch(at: far)])
+        XCTAssertEqual(state.phase, .grabbed)
+        XCTAssertEqual(state.panel!.scale, 1)
+        XCTAssertEqual(state.panel!.center.x, center.x + 10, accuracy: 0.001)
+    }
+
+    func testScaleRespondsImmediatelyAfterOvershootingLimit() {
+        let center = summon()
+        hold([], for: 0.5)
+        let y = center.y
+        func hands(_ half: CGFloat) -> [HandPose] {
+            [pinch(at: CGPoint(x: center.x - half, y: y)), pinch(at: CGPoint(x: center.x + half, y: y))]
+        }
+        hold(hands(50))
+        // 上限（2.5 倍 = 間隔 250）を大きく超えて 360 まで広げる。
+        for half in stride(from: CGFloat(70), through: 180, by: 20) {
+            hold(hands(half))
+        }
+        XCTAssertEqual(interactor.update(hands: hands(180), at: time).panel!.scale, interactor.config.maxScale, accuracy: 0.001)
+
+        // 少し戻しただけで、すぐ小さくなり始める。
+        let shrunk = hold(hands(162))
+        XCTAssertEqual(shrunk.panel!.scale, interactor.config.maxScale * 0.9, accuracy: 0.001)
+    }
+
     func testPanelCenterIsClampedToBounds() {
         interactor.bounds = CGRect(x: 0, y: 0, width: 400, height: 800)
         let center = summon(at: CGPoint(x: 200, y: 600))

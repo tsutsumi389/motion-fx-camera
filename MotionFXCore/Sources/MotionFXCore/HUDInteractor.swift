@@ -90,15 +90,14 @@ public struct HUDInteractor: Sendable {
                 break
             }
             let area = grabArea(of: current)
-            let onPanel = pinching.filter { area.contains($0.pose.pinchPoint) }
-            if let hand = onPanel.first {
+            if let hand = pinching.first(where: { area.contains($0.pose.pinchPoint) }) {
                 // 少なくとも片手がパネルをつまんでいるときだけ操作を始める。
-                if let other = pinching.first(where: { $0.id != hand.id }) {
+                if let other = scalePartner(for: hand, among: pinching, panel: current) {
                     beginScaling(hand, other, panel: current)
                 } else {
                     beginGrab(hand, panel: current)
                 }
-            } else if hands.contains(where: { $0.swipe != nil }) {
+            } else if hands.contains(where: { $0.swipe != nil && isSwipe(of: $0, across: current) }) {
                 panel = nil
                 mode = .hidden(cooldownUntil: time + config.dismissCooldown)
             }
@@ -111,7 +110,7 @@ public struct HUDInteractor: Sendable {
             if let hand = hands.first(where: { $0.id == handID }) {
                 if !hand.isPinching {
                     mode = .idle
-                } else if let other = pinching.first(where: { $0.id != handID }) {
+                } else if let other = scalePartner(for: hand, among: pinching, panel: current) {
                     beginScaling(hand, other, panel: current)
                 } else {
                     let center = clamped(hand.pose.pinchPoint + offset)
@@ -141,8 +140,21 @@ public struct HUDInteractor: Sendable {
             } else if let first, let second {
                 let a = first.pose.pinchPoint
                 let b = second.pose.pinchPoint
-                let scale = startScale * a.distance(to: b) / startDistance
-                panel?.scale = min(max(scale, config.minScale), config.maxScale)
+                let distance = a.distance(to: b)
+                let unclamped = startScale * distance / startDistance
+                let scale = min(max(unclamped, config.minScale), config.maxScale)
+                panel?.scale = scale
+                if scale != unclamped {
+                    // 上限・下限に当たったら、いまの手の間隔を基準に取り直す。
+                    // そうしないと、行き過ぎたぶんを戻すまで逆方向に反応しなくなる。
+                    mode = .scaling(
+                        first: firstID,
+                        second: secondID,
+                        startDistance: max(distance, 1),
+                        startScale: scale,
+                        offset: offset
+                    )
+                }
                 let center = clamped(a.midpoint(to: b) + offset)
                 panel?.center = center
             }
@@ -174,6 +186,19 @@ public struct HUDInteractor: Sendable {
             startScale: panel.scale,
             offset: panel.center - a.midpoint(to: b)
         )
+    }
+
+    /// 拡大縮小に加わる 2 本目の手。パネルの近くをつまんでいる手に限る。
+    /// 画面の隅でたまたまつまむ形になった手や、写り込んだ他人の手で拡縮が始まらないようにする。
+    private func scalePartner(for hand: TrackedHand, among pinching: [TrackedHand], panel: HUDPanel) -> TrackedHand? {
+        let area = grabArea(of: panel).insetBy(dx: -config.scaleReach, dy: -config.scaleReach)
+        return pinching.first { $0.id != hand.id && area.contains($0.pose.pinchPoint) }
+    }
+
+    /// 払う動きがパネルの高さを通っているか。離れた場所での手の動きでは消さない。
+    private func isSwipe(of hand: TrackedHand, across panel: HUDPanel) -> Bool {
+        let reach = grabArea(of: panel).height / 2 + hand.pose.handSize
+        return abs(hand.pose.palmCenter.y - panel.center.y) <= reach
     }
 
     private func grabArea(of panel: HUDPanel) -> CGRect {
